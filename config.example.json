@@ -1,0 +1,10 @@
+{
+  "source_priority": {
+    "illumina-clinical": 0,
+    "illumina-research": 10,
+    "ont": 20
+  },
+  "default_priority": 100,
+  "min_qual": 30,
+  "config_version": "2026-09-30-v1"
+}
