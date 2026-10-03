@@ -120,7 +120,7 @@ func (im *Importer) Import(ctx context.Context, sourceName, fileName string, r i
 // Resume continues r from the checkpointed byte offset. r must support
 // seeking (a file), so the caller can reopen the original input.
 func (im *Importer) Resume(ctx context.Context, sourceName, fileName string, r io.ReadSeeker) (Report, error) {
-	prog := im.checkpoint.progress(sourceName)
+	prog := im.checkpoint.progress(sourceName, fileName)
 	if prog.Offset > 0 {
 		if _, err := r.Seek(prog.Offset, io.SeekStart); err != nil {
 			return Report{}, err
@@ -148,7 +148,7 @@ func (im *Importer) run(ctx context.Context, sourceName, fileName string, r io.R
 		rec, err := parser.Next()
 		if errors.Is(err, io.EOF) {
 			if batch > 0 {
-				if err := im.checkpointBatch(sourceName, lastOffset, lastLine); err != nil {
+				if err := im.checkpointBatch(sourceName, fileName, lastOffset, lastLine); err != nil {
 					return report, err
 				}
 			}
@@ -184,7 +184,7 @@ func (im *Importer) run(ctx context.Context, sourceName, fileName string, r io.R
 		lastOffset = parser.ByteOffset()
 		lastLine = parser.Line()
 		if batch >= im.syncBatch {
-			if err := im.checkpointBatch(sourceName, lastOffset, lastLine); err != nil {
+			if err := im.checkpointBatch(sourceName, fileName, lastOffset, lastLine); err != nil {
 				return report, err
 			}
 			batch = 0
@@ -195,11 +195,11 @@ func (im *Importer) run(ctx context.Context, sourceName, fileName string, r io.R
 // checkpointBatch durably flushes the WAL, then persists the cursor. Ordering
 // guarantees a crash replays at most this batch; source provenance makes the
 // replay idempotent (no duplicates, no omissions).
-func (im *Importer) checkpointBatch(source string, offset, line int64) error {
+func (im *Importer) checkpointBatch(source, file string, offset, line int64) error {
 	if err := im.store.Sync(); err != nil {
 		return err
 	}
-	return im.checkpoint.advance(source, offset, line)
+	return im.checkpoint.advance(source, file, offset, line)
 }
 
 // normalizeRecord splits the raw multi-allelic record and normalizes each

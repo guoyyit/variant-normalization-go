@@ -49,7 +49,7 @@ func TestImporter_StreamMemoryBounded(t *testing.T) {
 	}
 	defer st.Close()
 
-	im, err := New(st, refFor(1, strings.Repeat("N", 64)+"CAAAACGT"),
+	im, err := New(st, refFor(1, strings.Repeat("N", 9)+"A"+strings.Repeat("N", 246)),
 		config.Default(), filepath.Join(t.TempDir(), "cp.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +147,7 @@ func TestImporter_CrashResumeNoDuplicates(t *testing.T) {
 	defer st.Close()
 
 	cpPath := filepath.Join(dir, "cp.json")
-	im, err := New(st, refFor(1, strings.Repeat("N", 256)),
+	im, err := New(st, refFor(1, strings.Repeat("A", 256)),
 		config.Default(), cpPath)
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestImporter_CrashResumeNoDuplicates(t *testing.T) {
 	// Resume from checkpoint with a fresh seekable copy of the full input.
 	data := buildVCF(total)
 	seeker := &seekableNumber{data: data}
-	im2, err := New(st, refFor(1, strings.Repeat("N", 256)),
+	im2, err := New(st, refFor(1, strings.Repeat("A", 256)),
 		config.Default(), cpPath)
 	if err != nil {
 		t.Fatal(err)

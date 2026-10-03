@@ -13,6 +13,7 @@ import (
 	"github.com/guoyyit/variant-normalization-go/pkg/config"
 	"github.com/guoyyit/variant-normalization-go/pkg/genome"
 	"github.com/guoyyit/variant-normalization-go/pkg/importer"
+	"github.com/guoyyit/variant-normalization-go/pkg/normalize"
 	"github.com/guoyyit/variant-normalization-go/pkg/stats"
 	"github.com/guoyyit/variant-normalization-go/pkg/store"
 )
@@ -36,6 +37,8 @@ func run(args []string) error {
 		return importCmd(args[1:], true)
 	case "query":
 		return queryCmd(args[1:])
+	case "rebuild":
+		return rebuildCmd(args[1:])
 	case "-h", "--help", "help":
 		usage()
 		return nil
@@ -196,7 +199,58 @@ usage:
   varnorm import -source NAME [-reference REF.fa] [-config C.json] [-db DIR]
                  [-checkpoint cp.json] FILE.vcf
   varnorm resume  (same flags; continues from the checkpoint)
-  varnorm query  -chrom C -start N -end M [-page-size K] [-page-token T]
+	varnorm query  -chrom C -start N -end M [-page-size K] [-page-token T]
                  [-json] [-db DIR]
+  varnorm rebuild -source NAME [-reference REF.fa] [-config C.json]
+                 [-db DIR] [-checkpoint cp.json] FILE.vcf [FILE.vcf ...]
 `)
+}
+
+func rebuildCmd(args []string) error {
+	fs := flag.NewFlagSet("rebuild", flag.ContinueOnError)
+	dbDir, cfgPath, refPath, cpPath := commonFlags(fs)
+	source := fs.String("source", "", "logical source name (required)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 || *source == "" {
+		return fmt.Errorf("usage: varnorm rebuild -source NAME [-reference REF.fa] [-config C.json] [-db DIR] [-checkpoint cp.json] FILE.vcf [FILE.vcf ...]")
+	}
+
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		return err
+	}
+
+	var ref normalize.Reference
+	if *refPath != "" {
+		g, err := genome.LoadFASTA(*refPath)
+		if err != nil {
+			return err
+		}
+		ref = g
+	}
+
+	files := make([]importer.SourceFile, 0, fs.NArg())
+	for _, arg := range fs.Args() {
+		files = append(files, importer.SourceFile{
+			Source: *source,
+			File:   filepath.Base(arg),
+			Path:   arg,
+		})
+	}
+
+	ctx, cancel := signalContext()
+	defer cancel()
+
+	rep, err := importer.Rebuild(ctx, dbDir, ref, cfg, *cpPath, files)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("rebuilt source=%s files=%d imported=%d rejected=%d\n",
+		*source, len(files), rep.Imported, len(rep.Rejected))
+	for _, rej := range rep.Rejected {
+		fmt.Fprintf(os.Stderr, "  rejected line %d: %s\n", rej.Line, rej.Reason)
+	}
+	return nil
 }

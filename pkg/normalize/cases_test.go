@@ -40,7 +40,7 @@ func TestCanonicalCases(t *testing.T) {
 		{"snp_trim", 6, "CT", "GT", 6, "C", "G"},
 		// Inserting C... T>CT at the tail still walks left through the
 		// identical anchor to its canonical position.
-		{"ins_tail", 7, "T", "CT", 1, "C", "CA"},
+		{"ins_tail", 7, "T", "CT", 5, "A", "AC"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -55,12 +55,18 @@ func TestCanonicalCases(t *testing.T) {
 
 func TestCanonical_CrossRepresentations(t *testing.T) {
 	const seq = "CAAAACT"
-	// Two different textual spellings of the same deletion must converge.
+	// Different textual spellings of the same deletion must converge.
+	// Both REF alleles match the reference at their reported windows.
 	a := norm(t, seq, 3, "AAAC", "AAC")
-	b := norm(t, seq, 2, "AAC", "AC")
+	b := norm(t, seq, 2, "AA", "A")
+	c := norm(t, seq, 3, "AAA", "AA")
 	if a.Pos != b.Pos || a.Ref != b.Ref || a.Alt[0] != b.Alt[0] {
 		t.Fatalf("representations diverge: %d:%s>%s vs %d:%s>%s",
 			a.Pos, a.Ref, a.Alt[0], b.Pos, b.Ref, b.Alt[0])
+	}
+	if a.Pos != c.Pos || a.Ref != c.Ref || a.Alt[0] != c.Alt[0] {
+		t.Fatalf("representations diverge: %d:%s>%s vs %d:%s>%s",
+			a.Pos, a.Ref, a.Alt[0], c.Pos, c.Ref, c.Alt[0])
 	}
 }
 

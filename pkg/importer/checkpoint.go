@@ -14,6 +14,8 @@ type sourceProgress struct {
 	Offset int64 `json:"offset"`
 	// Line is the 1-based line number of that record.
 	Line int64 `json:"line"`
+	// File is the input file name this progress refers to.
+	File string `json:"file"`
 }
 
 // checkpointFile is the on-disk progress manifest.
@@ -47,13 +49,20 @@ func openCheckpoint(path string) (*checkpoint, error) {
 	return cp, nil
 }
 
-func (c *checkpoint) progress(source string) sourceProgress {
-	return c.data.Sources[source]
+// checkpointKey returns the composite key for a (source, file) pair.
+func checkpointKey(source, file string) string {
+	return source + "\x00" + file
+}
+
+func (c *checkpoint) progress(source, file string) sourceProgress {
+	return c.data.Sources[checkpointKey(source, file)]
 }
 
 // advance moves the cursor and atomically persists the manifest.
-func (c *checkpoint) advance(source string, offset, line int64) error {
-	c.data.Sources[source] = sourceProgress{Offset: offset, Line: line}
+func (c *checkpoint) advance(source, file string, offset, line int64) error {
+	c.data.Sources[checkpointKey(source, file)] = sourceProgress{
+		Offset: offset, Line: line, File: file,
+	}
 	return c.persist()
 }
 

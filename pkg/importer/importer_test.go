@@ -53,8 +53,8 @@ func TestImporter_EndToEnd(t *testing.T) {
 	vcfData := strings.NewReader(`##fileformat=VCFv4.2
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S1
 chr1	3	.	AAAC	AAC	60	PASS	DP=40	GT	0/1
-chr1	100	.	A	T,G	.	.	.	GT	1/2
-chr1	9	.	C	T	.	.	.	GT	0/1
+chr1	8	.	T	A,G	.	.	.	GT	1/2
+chr1	7	.	G	T	.	.	.	GT	0/1
 `)
 	rep, err := im.Import(context.Background(), "src-a", "a.vcf", vcfData)
 	if err != nil {
@@ -86,14 +86,14 @@ chr1	9	.	C	T	.	.	.	GT	0/1
 		t.Fatalf("count=%d", count)
 	}
 
-	group, ok, _ := st.Get("chr1", 100, "A")
+	group, ok, _ := st.Get("chr1", 8, "T")
 	if !ok {
 		t.Fatal("multi-alt group missing at chr1:100")
 	}
-	if got := strings.Join(group.Alt, ","); got != "G,T" {
-		t.Fatalf("alts=%q want G,T", got)
+	if got := strings.Join(group.Alt, ","); got != "A,G" {
+		t.Fatalf("alts=%q want A,G", got)
 	}
-	// Original GT 1/2 -> slots G=1,T=2; AC 1 each, AN 2.
+	// Original GT 1/2 -> slots A=1,G=2; AC 1 each, AN 2.
 	if group.Info["AC"] != "1,1" || group.Info["AN"] != "2" {
 		t.Fatalf("split/merge stats wrong: %v", group.Info)
 	}
@@ -160,9 +160,9 @@ func TestImporter_Resume(t *testing.T) {
 	}
 
 	full := "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n" +
-		"chr1\t1\t.\tA\tT\t.\t.\t.\n" +
-		"chr1\t2\t.\tC\tG\t.\t.\t.\n" +
-		"chr1\t3\t.\tG\tA\t.\t.\t.\n"
+		"chr1\t1\t.\tC\tT\t.\t.\t.\n" +
+		"chr1\t2\t.\tA\tG\t.\t.\t.\n" +
+		"chr1\t3\t.\tA\tT\t.\t.\t.\n"
 
 	// Write the input file and emulate a crash after line 1 by truncating
 	// the checkpoint to the first record boundary.

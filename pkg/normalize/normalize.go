@@ -98,6 +98,11 @@ func Normalize(rec variant.Record, ref Reference) (variant.Record, error) {
 		return variant.Record{}, outOfBoundsF("reference genome required to normalize %s:%d", out.Chrom, out.Pos)
 	}
 
+	// The REF allele must agree with the reference at the reported window.
+	if err := validateREFMatch(out, ref, refAllele); err != nil {
+		return variant.Record{}, err
+	}
+
 	nRef, nPos, nAlt, err := leftAlign(out.Chrom, out.Pos, refAllele, alt, ref)
 	if err != nil {
 		return variant.Record{}, err
@@ -111,6 +116,21 @@ func Normalize(rec variant.Record, ref Reference) (variant.Record, error) {
 	delete(out.Info, "AN")
 	delete(out.Info, "AF")
 	return out, nil
+}
+
+// validateREFMatch rejects records whose REF allele does not match the
+// reference bases at the reported window, which would make haplotype
+// reconstruction ambiguous.
+func validateREFMatch(rec variant.Record, ref Reference, refAllele string) error {
+	window, err := ref.Substring(rec.Chrom, rec.Pos, rec.Pos+len(refAllele))
+	if err != nil {
+		return outOfBoundsF("cannot fetch reference window at %s:%d: %v", rec.Chrom, rec.Pos, err)
+	}
+	if strings.ToUpper(window) != refAllele {
+		return invalidF("REF allele %q does not match reference %q at %s:%d",
+			refAllele, strings.ToUpper(window), rec.Chrom, rec.Pos)
+	}
+	return nil
 }
 
 func isBases(s string) bool {
@@ -157,30 +177,26 @@ func validateGTs(rec variant.Record) error {
 	return nil
 }
 
-// trimCommon strips shared suffix then prefix bases, always keeping at least
-// one anchor base on each allele.
+// trimCommon strips the shared suffix, always keeping at least one anchor
+// base on each allele. The shared prefix is retained as the left anchor.
 func trimCommon(r, a string) (string, string) {
 	for len(r) > 1 && len(a) > 1 && r[len(r)-1] == a[len(a)-1] {
 		r = r[:len(r)-1]
 		a = a[:len(a)-1]
-	}
-	for len(r) > 1 && len(a) > 1 && r[0] == a[0] {
-		r = r[1:]
-		a = a[1:]
 	}
 	return r, a
 }
 
 // leftAlign implements the canonical left-alignment algorithm (Tan et al.
 // 2015, as used by vt/bcftools): walk the allele window one base left until
-// it can move no further, trimming shared anchors after each step.
+// it can move no further. Each step prepends the left reference base to both
+// alleles (preserving the haplotype), then trims the shared suffix. After
+// alignment the shared prefix is trimmed so the anchor sits immediately
+// before the variant, keeping exactly one anchor base.
 func leftAlign(chrom string, pos int, r, a string, ref Reference) (string, int, string, error) {
 	r, a = trimCommon(r, a)
 	for {
 		if len(r) == len(a) {
-			break
-		}
-		if len(r) == 1 && len(a) == 1 {
 			break
 		}
 		if pos <= 1 {
@@ -194,10 +210,18 @@ func leftAlign(chrom string, pos int, r, a string, ref Reference) (string, int, 
 		if len(leftBase) != 1 || !isBases(leftBase) {
 			return "", 0, "", outOfBoundsF("invalid reference base at %s:%d", chrom, pos-1)
 		}
-		r = leftBase + r[:len(r)-1]
-		a = leftBase + a[:len(a)-1]
+		r = leftBase + r
+		a = leftBase + a
 		pos--
-		r, a = trimCommon(r, a)
+		for len(r) > 1 && len(a) > 1 && r[len(r)-1] == a[len(a)-1] {
+			r = r[:len(r)-1]
+			a = a[:len(a)-1]
+		}
+	}
+	for len(r) > 1 && len(a) > 1 && r[0] == a[0] {
+		r = r[1:]
+		a = a[1:]
+		pos++
 	}
 	return r, pos, a, nil
 }
