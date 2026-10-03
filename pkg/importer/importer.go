@@ -110,6 +110,13 @@ func (im *Importer) WithSyncBatch(n int) *Importer {
 	return im
 }
 
+// ResetProgress clears the checkpoint cursors. Rebuild uses this when it
+// starts a new empty shadow generation so stale cursors from a previously
+// completed generation cannot cause it to skip records.
+func (im *Importer) ResetProgress() {
+	im.checkpoint.reset()
+}
+
 // Import streams every record from r. Invalid lines are reported via
 // Rejected but never abort the stream. Replaying the same source is safe:
 // the (source,file,line) provenance tuple makes each upsert idempotent.

@@ -157,33 +157,61 @@ func validateGTs(rec variant.Record) error {
 	return nil
 }
 
-// trimCommon strips shared suffix then prefix bases, always keeping at least
-// one anchor base on each allele.
-func trimCommon(r, a string) (string, string) {
+// trimSuffix strips shared trailing bases. Dropping an identical base from
+// both alleles does not move the window, so POS is unchanged. At least one
+// base must remain on each allele (a VCF anchor).
+func trimSuffix(r, a string) (string, string) {
 	for len(r) > 1 && len(a) > 1 && r[len(r)-1] == a[len(a)-1] {
 		r = r[:len(r)-1]
 		a = a[:len(a)-1]
 	}
-	for len(r) > 1 && len(a) > 1 && r[0] == a[0] {
-		r = r[1:]
-		a = a[1:]
-	}
 	return r, a
 }
 
-// leftAlign implements the canonical left-alignment algorithm (Tan et al.
-// 2015, as used by vt/bcftools): walk the allele window one base left until
-// it can move no further, trimming shared anchors after each step.
+// trimPrefix strips shared leading bases. Removing the first base of both
+// alleles moves the window start one base to the right, so it returns the
+// advanced POS. At least one base remains on each allele.
+func trimPrefix(r, a string, pos int) (string, string, int) {
+	for len(r) > 1 && len(a) > 1 && r[0] == a[0] {
+		r = r[1:]
+		a = a[1:]
+		pos++
+	}
+	return r, a, pos
+}
+
+// leftAlign implements the canonical pruning and left-alignment algorithm
+// (Tan et al. 2015, as used by vt/bcftools).
+//
+// The allele window at POS covers reference bases r; the alternative
+// haplotype uses a. Two purely representational rewrites preserve the
+// resulting haplotype exactly:
+//   - dropping a base shared by both allele ends (suffix trim: POS fixed;
+//     prefix trim: POS advanced by one per dropped base);
+//   - shifting the window one base to the left, which is
+//     r' = b + r[:len(r)-1], a' = b + a[:len(a)-1] with b the reference
+//     base immediately to the left. This is "add a common left anchor,
+//     drop the old right edge" and keeps the haplotype only when the bases
+//     dropped from the two haplotypes are identical, i.e. the last base of
+//     r equals the last base of a before the shift.
+//
+// The loop moves the window left while that condition holds and trims
+// shared anchors after every move. It terminates at the chromosome start,
+// at an equal-length window, or when the trailing bases diverge, which is
+// precisely the leftmost representation. The result is idempotent.
 func leftAlign(chrom string, pos int, r, a string, ref Reference) (string, int, string, error) {
-	r, a = trimCommon(r, a)
+	r, a = trimSuffix(r, a)
+	r, a, pos = trimPrefix(r, a, pos)
 	for {
 		if len(r) == len(a) {
 			break
 		}
-		if len(r) == 1 && len(a) == 1 {
+		if pos <= 1 {
 			break
 		}
-		if pos <= 1 {
+		// The left shift only preserves the represented haplotype when both
+		// haplotypes lose the same base at the old right edge.
+		if r[len(r)-1] != a[len(a)-1] {
 			break
 		}
 		leftBase, err := ref.Substring(chrom, pos-1, pos)
@@ -197,7 +225,8 @@ func leftAlign(chrom string, pos int, r, a string, ref Reference) (string, int, 
 		r = leftBase + r[:len(r)-1]
 		a = leftBase + a[:len(a)-1]
 		pos--
-		r, a = trimCommon(r, a)
+		r, a = trimSuffix(r, a)
+		r, a, pos = trimPrefix(r, a, pos)
 	}
 	return r, pos, a, nil
 }

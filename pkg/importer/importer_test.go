@@ -208,3 +208,50 @@ func TestImporter_Resume(t *testing.T) {
 	}
 	st.Close()
 }
+
+// TestImporter_RejectReasonsDistinct feeds one file containing an invalid
+// allele, an out-of-bounds record and a valid record. Both bad rows are
+// rejected with distinguishable reasons, import continues, and the valid row
+// lands in the store.
+func TestImporter_RejectReasonsDistinct(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "db"), Fold(config.Default()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	im, err := New(st, fakeRef{seq: "ACGT"}, config.Default(), filepath.Join(dir, "cp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := strings.NewReader("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n" +
+		"chr1\t2\t.\tC\tX\t.\t.\t.\n" +
+		"chr1\t9\t.\tA\tT\t.\t.\t.\n" +
+		"chr1\t3\t.\tG\tT\t.\t.\t.\n")
+	rep, err := im.Import(context.Background(), "s", "a.vcf", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Rejected) != 2 {
+		t.Fatalf("rejected=%d want 2", len(rep.Rejected))
+	}
+	var sawInvalid, sawBounds bool
+	for _, rj := range rep.Rejected {
+		if strings.Contains(rj.Reason, "invalid variant format") {
+			sawInvalid = true
+		}
+		if strings.Contains(rj.Reason, "coordinate out of bounds") {
+			sawBounds = true
+		}
+	}
+	if !sawInvalid || !sawBounds {
+		t.Fatalf("reasons not distinguishable: %+v", rep.Rejected)
+	}
+	if rep.Imported != 1 {
+		t.Fatalf("imported=%d want 1 (invalid rows must not abort import)", rep.Imported)
+	}
+	count, err := st.Count()
+	if err != nil || count != 1 {
+		t.Fatalf("count=%d err=%v", count, err)
+	}
+}

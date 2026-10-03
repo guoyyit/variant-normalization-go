@@ -51,6 +51,14 @@ func (c *checkpoint) progress(source string) sourceProgress {
 	return c.data.Sources[source]
 }
 
+// reset clears all source cursors. A rebuild starts from an empty shadow
+// generation, so a previously completed run's cursors must not make it skip
+// records that the new generation has never seen; interruption/resume within
+// a single rebuild run keeps its own checkpoint file.
+func (c *checkpoint) reset() {
+	c.data.Sources = map[string]sourceProgress{}
+}
+
 // advance moves the cursor and atomically persists the manifest.
 func (c *checkpoint) advance(source string, offset, line int64) error {
 	c.data.Sources[source] = sourceProgress{Offset: offset, Line: line}

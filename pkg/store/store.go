@@ -421,6 +421,56 @@ func (s *Store) segmentName() string {
 	return fmt.Sprintf("%s%020d", segmentPrefix, segmentSeq.Add(1))
 }
 
+// Scan streams the newest merged value of every stored key in key order.
+// Records are read from disk on demand and discarded after the callback, so
+// memory use stays bounded by the memtable/index, not the record count.
+func (s *Store) Scan(fn func(variant.Record) error) error {
+	s.mu.RLock()
+	mem := make(map[string]variant.Record, len(s.memtable))
+	for key, rec := range s.memtable {
+		mem[key] = rec
+	}
+	segOf := make(map[string]*segment, len(s.index.segOf))
+	for key, seg := range s.index.segOf {
+		segOf[key] = seg
+	}
+	s.mu.RUnlock()
+
+	keys := make([]string, 0, len(mem)+len(segOf))
+	for key := range mem {
+		keys = append(keys, key)
+	}
+	for key, seg := range segOf {
+		if _, inMem := mem[key]; inMem {
+			continue
+		}
+		_ = seg
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		if rec, ok := mem[key]; ok {
+			if err := fn(rec); err != nil {
+				return err
+			}
+			continue
+		}
+		seg := segOf[key]
+		entry, found, err := seg.lookup(key)
+		if err != nil {
+			return err
+		}
+		if !found {
+			continue
+		}
+		if err := fn(entry.Record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Get returns the merged group at chrom/pos/ref.
 func (s *Store) Get(chrom string, pos int, ref string) (variant.Record, bool, error) {
 	key := EncodeKey(chrom, pos, ref)

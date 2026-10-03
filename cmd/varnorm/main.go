@@ -13,6 +13,7 @@ import (
 	"github.com/guoyyit/variant-normalization-go/pkg/config"
 	"github.com/guoyyit/variant-normalization-go/pkg/genome"
 	"github.com/guoyyit/variant-normalization-go/pkg/importer"
+	"github.com/guoyyit/variant-normalization-go/pkg/rebuild"
 	"github.com/guoyyit/variant-normalization-go/pkg/stats"
 	"github.com/guoyyit/variant-normalization-go/pkg/store"
 )
@@ -36,6 +37,8 @@ func run(args []string) error {
 		return importCmd(args[1:], true)
 	case "query":
 		return queryCmd(args[1:])
+	case "rebuild":
+		return rebuildCmd(args[1:])
 	case "-h", "--help", "help":
 		usage()
 		return nil
@@ -89,11 +92,12 @@ func importCmd(args []string, resume bool) error {
 		ref = g
 	}
 
-	st, err := store.Open(dbDir, importer.Fold(cfg))
+	router, err := store.OpenRouter(dbDir, importer.Fold(cfg))
 	if err != nil {
 		return err
 	}
-	defer st.Close()
+	defer router.Close()
+	st := router.Active()
 
 	im, err := importer.New(st, ref, cfg, *cpPath)
 	if err != nil {
@@ -128,6 +132,56 @@ func importCmd(args []string, resume bool) error {
 	return nil
 }
 
+func rebuildCmd(args []string) error {
+	fs := flag.NewFlagSet("rebuild", flag.ContinueOnError)
+	dbDir, cfgPath, refPath, cpPath := commonFlags(fs)
+	source := fs.String("source", "", "logical source name (required)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 || *source == "" {
+		return fmt.Errorf("usage: varnorm rebuild -source NAME [-reference REF.fa] [-config C.json] [-db DIR] [-checkpoint CP.json] FILE.vcf [FILE2.vcf ...]")
+	}
+	if *refPath == "" {
+		return fmt.Errorf("rebuild requires -reference for semantic normalization")
+	}
+
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		return err
+	}
+	g, err := genome.LoadFASTA(*refPath)
+	if err != nil {
+		return err
+	}
+
+	router, err := store.OpenRouter(dbDir, importer.Fold(cfg))
+	if err != nil {
+		return err
+	}
+	defer router.Close()
+
+	rb, err := rebuild.New(router, g, cfg, importer.Fold(cfg))
+	if err != nil {
+		return err
+	}
+
+	sources := make([]rebuild.Source, 0, fs.NArg())
+	for _, p := range fs.Args() {
+		sources = append(sources, rebuild.Source{Name: *source, Path: p})
+	}
+
+	ctx, cancel := signalContext()
+	defer cancel()
+
+	result, err := rb.Rebuild(ctx, sources, *cpPath)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("rebuilt generation=%d db=%s\n", result.Generation, dbDir)
+	return nil
+}
+
 func queryCmd(args []string) error {
 	fs := flag.NewFlagSet("query", flag.ContinueOnError)
 	dbDir, cfgPath, _, _ := commonFlags(fs)
@@ -148,11 +202,12 @@ func queryCmd(args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := store.Open(dbDir, importer.Fold(cfg))
+	router, err := store.OpenRouter(dbDir, importer.Fold(cfg))
 	if err != nil {
 		return err
 	}
-	defer st.Close()
+	defer router.Close()
+	st := router.Active()
 
 	page, err := st.Query(store.PageQuery{
 		Chrom:     *chrom,
@@ -198,5 +253,7 @@ usage:
   varnorm resume  (same flags; continues from the checkpoint)
   varnorm query  -chrom C -start N -end M [-page-size K] [-page-token T]
                  [-json] [-db DIR]
+  varnorm rebuild -source NAME -reference REF.fa [-config C.json] [-db DIR]
+                  [-checkpoint cp.json] FILE.vcf [FILE2.vcf ...]
 `)
 }

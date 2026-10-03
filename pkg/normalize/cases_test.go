@@ -38,9 +38,11 @@ func TestCanonicalCases(t *testing.T) {
 		{"snp", 7, "T", "G", 7, "T", "G"},
 		// SNP with trailing matching base trimmed.
 		{"snp_trim", 6, "CT", "GT", 6, "C", "G"},
-		// Inserting C... T>CT at the tail still walks left through the
-		// identical anchor to its canonical position.
-		{"ins_tail", 7, "T", "CT", 1, "C", "CA"},
+		// Inserting C at the tail (T>CT at pos 7) is a different variant
+		// from inserting an A into the A-run: its haplotype ends in ...CCT.
+		// Left alignment walks left only while the dropped trailing bases
+		// match, settling at pos 5: A>AC.
+		{"ins_tail", 7, "T", "CT", 5, "A", "AC"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
